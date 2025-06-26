@@ -72,7 +72,7 @@ TIMEFRAME = os.getenv('TIMEFRAME', '15m')  # Default to 15 minutes, can be overr
 USE_STOP_LOSS = os.getenv('USE_STOP_LOSS', 'True').lower() == 'true'
 STOP_LOSS_PCT = float(os.getenv('STOP_LOSS_PCT', '0.015'))  # 1.5% stop loss (more conservative)
 TRAILING_STOP = os.getenv('TRAILING_STOP', 'True').lower() == 'true'
-TRAILING_STOP_PCT = float(os.getenv('TRAILING_STOP_PCT', '0.015'))  # 1.5% trailing stop
+TRAILING_STOP_PCT = float(os.getenv('TRAILING_STOP_PCT', '0.03'))  # 3% trailing stop
 UPDATE_TRAILING_ON_HOLD = os.getenv('UPDATE_TRAILING_ON_HOLD', 'True').lower() == 'true'  # Update trailing stop on HOLD signals
 
 # Take profit settings - Fixed take profit (not trailing)
