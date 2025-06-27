@@ -1,32 +1,42 @@
 from typing import Dict, List, Tuple, Optional, Any
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
 import logging
 import warnings
 import traceback
+import math
+from collections import deque
 
 # Setup logging
 logger = logging.getLogger(__name__)
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-# Import EMA and ADX config values at module level
+# Import price action configuration values
 try:
-    from modules.config import FAST_EMA, SLOW_EMA, ADX_PERIOD, ADX_THRESHOLD
+    from modules.config import (
+        PRICE_ACTION_LOOKBACK,
+        BREAKOUT_THRESHOLD,
+        VOLATILITY_WINDOW,
+        MOMENTUM_WINDOW,
+        SUPPORT_RESISTANCE_STRENGTH
+    )
 except ImportError:
-    # Fallback values
-    FAST_EMA = 10
-    SLOW_EMA = 30
-    ADX_PERIOD = 14
-    ADX_THRESHOLD = 20
+    # Fallback values for pure price action strategies
+    PRICE_ACTION_LOOKBACK = 20
+    BREAKOUT_THRESHOLD = 0.02  # 2% breakout threshold
+    VOLATILITY_WINDOW = 14
+    MOMENTUM_WINDOW = 10
+    SUPPORT_RESISTANCE_STRENGTH = 3
 
 
 class TradingStrategy:
-    """Base trading strategy class"""
+    """Base trading strategy class for pure price action strategies"""
     
     def __init__(self, name="BaseStrategy"):
         self.name = name
         self.risk_manager = None
+        self.last_signal = None
+        self.signal_history = deque(maxlen=100)  # Keep last 100 signals for analysis
     
     @property
     def strategy_name(self):
@@ -41,74 +51,224 @@ class TradingStrategy:
         """Get trading signal from klines data. Override in subclasses."""
         return None
         
-        
     def add_indicators(self, df):
-        """Add technical indicators to dataframe. Override in subclasses."""
+        """Add mathematical price action calculations to dataframe. Override in subclasses."""
         return df
+    
+    def calculate_price_momentum(self, prices, window=10):
+        """Calculate pure price momentum without indicators"""
+        if len(prices) < window + 1:
+            return 0
+        
+        current_price = prices[-1]
+        past_price = prices[-window-1]
+        
+        # Prevent division by zero
+        if past_price == 0 or past_price is None:
+            return 0
+        
+        momentum = (current_price - past_price) / past_price
+        return momentum
+    
+    def calculate_volatility(self, prices, window=14):
+        """Calculate price volatility using standard deviation"""
+        if len(prices) < window:
+            return 0
+        
+        recent_prices = prices[-window:]
+        returns = []
+        
+        for i in range(1, len(recent_prices)):
+            prev_price = recent_prices[i-1]
+            curr_price = recent_prices[i]
+            
+            # Prevent division by zero
+            if prev_price == 0 or prev_price is None:
+                continue
+                
+            return_val = (curr_price - prev_price) / prev_price
+            returns.append(return_val)
+        
+        if not returns:
+            return 0
+        
+        volatility = np.std(returns)
+        return volatility
+    
+    def find_support_resistance(self, highs, lows, strength=3):
+        """Find support and resistance levels using price action"""
+        if len(highs) < strength * 2 + 1 or len(lows) < strength * 2 + 1:
+            return [], []
+        
+        resistance_levels = []
+        support_levels = []
+        
+        # Find resistance levels (local highs)
+        for i in range(strength, len(highs) - strength):
+            is_resistance = True
+            for j in range(i - strength, i + strength + 1):
+                if j != i and highs[j] >= highs[i]:
+                    is_resistance = False
+                    break
+            if is_resistance:
+                resistance_levels.append(highs[i])
+        
+        # Find support levels (local lows)
+        for i in range(strength, len(lows) - strength):
+            is_support = True
+            for j in range(i - strength, i + strength + 1):
+                if j != i and lows[j] <= lows[i]:
+                    is_support = False
+                    break
+            if is_support:
+                support_levels.append(lows[i])
+        
+        return resistance_levels, support_levels
+    
+    def detect_candlestick_patterns(self, ohlc_data):
+        """Detect basic candlestick patterns using pure price action"""
+        if len(ohlc_data) < 2:
+            return None
+        
+        try:
+            current = ohlc_data[-1]
+            prev = ohlc_data[-2] if len(ohlc_data) >= 2 else current
+            
+            # Validate OHLC data
+            required_keys = ['open', 'high', 'low', 'close']
+            for key in required_keys:
+                if key not in current or current[key] is None or current[key] <= 0:
+                    return None
+                if key not in prev or prev[key] is None or prev[key] <= 0:
+                    return None
+            
+            o, h, l, c = current['open'], current['high'], current['low'], current['close']
+            prev_o, prev_h, prev_l, prev_c = prev['open'], prev['high'], prev['low'], prev['close']
+            
+            # Validate OHLC relationships
+            if not (l <= min(o, c) <= max(o, c) <= h):
+                return None
+            if not (prev_l <= min(prev_o, prev_c) <= max(prev_o, prev_c) <= prev_h):
+                return None
+            
+            body_size = abs(c - o)
+            prev_body_size = abs(prev_c - prev_o)
+            total_range = h - l
+            
+            # Avoid patterns on very small ranges
+            if total_range == 0:
+                return None
+            
+            # Bullish patterns
+            if c > o:  # Green candle
+                # Hammer pattern (need meaningful lower shadow)
+                lower_shadow = min(o, c) - l
+                upper_shadow = h - max(o, c)
+                
+                if (body_size > 0 and lower_shadow > 2 * body_size and 
+                    upper_shadow < body_size * 0.2):
+                    return "BULLISH_HAMMER"
+                
+                # Bullish engulfing (need meaningful previous body)
+                if (prev_body_size > 0 and prev_c < prev_o and 
+                    c > prev_o and o < prev_c and body_size > prev_body_size):
+                    return "BULLISH_ENGULFING"
+            
+            # Bearish patterns
+            elif c < o:  # Red candle
+                # Hanging man pattern
+                lower_shadow = min(o, c) - l
+                upper_shadow = h - max(o, c)
+                
+                if (body_size > 0 and lower_shadow > 2 * body_size and 
+                    upper_shadow < body_size * 0.2):
+                    return "BEARISH_HANGING_MAN"
+                
+                # Bearish engulfing
+                if (prev_body_size > 0 and prev_c > prev_o and 
+                    c < prev_o and o > prev_c and body_size > prev_body_size):
+                    return "BEARISH_ENGULFING"
+            
+            # Doji pattern (very small body relative to range)
+            if total_range > 0 and body_size < total_range * 0.1:
+                return "DOJI"
+            
+            return None
+            
+        except (KeyError, TypeError, ValueError) as e:
+            logger.warning(f"Error in candlestick pattern detection: {e}")
+            return None
 
 
-class SmartTrendCatcher(TradingStrategy):
+class PurePriceActionStrategy(TradingStrategy):
     """
-    EMA Crossover + ADX Trend Strategy:
+    Pure Price Action Strategy:
     
     Core Strategy:
-    - Combines EMA crossover signals with ADX trend strength filtering
-    - Uses 10 and 30 EMA configuration with 14-period ADX
-    - ADX <= 20 forces HOLD signal (weak trend condition)
-    - Only generates BUY/SELL when EMA crossover occurs AND ADX confirms strength
+    - Uses only price movements, support/resistance, and mathematical analysis
+    - No traditional indicators - pure price action and statistical analysis
+    - Combines multiple price action signals for confirmation
     
-    Technical Indicators (pandas_ta):
-    - EMA (Exponential Moving Average): Fast (10) and Slow (30) periods
-    - ADX (Average Directional Index): 14-period for trend strength
-    - Standard implementations using pandas_ta library
+    Mathematical Components:
+    - Price momentum calculation using percentage change
+    - Volatility measurement using standard deviation of returns
+    - Support/resistance level detection using local highs/lows
+    - Candlestick pattern recognition
+    - Breakout detection using price thresholds
     
     Signal Generation Logic:
-    - BUY: Fast EMA crosses ABOVE Slow EMA AND ADX > 20 (bullish crossover + strong trend)
-    - SELL: Fast EMA crosses BELOW Slow EMA AND ADX > 20 (bearish crossover + strong trend)  
-    - HOLD: No crossover OR ADX <= 20 (no signal or weak trend)
+    - BUY: Bullish breakout above resistance + positive momentum + bullish patterns
+    - SELL: Bearish breakdown below support + negative momentum + bearish patterns  
+    - HOLD: Price within support/resistance range or conflicting signals
 
-    Benefits of EMA Crossover + ADX Strategy:
-    - Filters out weak trends and sideways markets
-    - Reduces false signals during consolidation
-    - Only trades on actual trend changes (crossovers)
-    - Combines trend direction change (EMA crossover) with trend strength (ADX)
+    Benefits of Pure Price Action Strategy:
+    - No lagging indicators - responds immediately to price changes
+    - Works in all market conditions (trending, ranging, volatile)
+    - Mathematical approach reduces emotional bias
+    - Focuses on what actually moves the market: price and volume
     """
     
     def __init__(self, 
-                 ema_slow=30,               # Slow EMA (30 period)
-                 ema_fast=10,               # Fast EMA (10 period)
-                 adx_period=14,             # ADX period (14 standard)
-                 adx_threshold=20):  # ADX threshold from config (<=20 = HOLD)
+                 lookback_period=20,        # Lookback period for analysis
+                 breakout_threshold=0.02,   # 2% breakout threshold
+                 volatility_window=14,      # Volatility calculation window
+                 momentum_window=10,        # Momentum calculation window
+                 sr_strength=3):            # Support/resistance strength
         
-        super().__init__("SmartTrendCatcher")
+        super().__init__("PurePriceActionStrategy")
         
         # Parameter validation
-        if ema_slow <= 0 or ema_fast <= 0:
-            raise ValueError("EMA periods must be positive")
-        if ema_fast >= ema_slow:
-            raise ValueError("Fast EMA must be less than slow EMA")
-        if adx_period <= 0:
-            raise ValueError("ADX period must be positive")
-        if adx_threshold < 0:
-            raise ValueError("ADX threshold must be non-negative")
+        if lookback_period <= 0:
+            raise ValueError("Lookback period must be positive")
+        if breakout_threshold <= 0:
+            raise ValueError("Breakout threshold must be positive") 
+        if volatility_window <= 0:
+            raise ValueError("Volatility window must be positive")
+        if momentum_window <= 0:
+            raise ValueError("Momentum window must be positive")
+        if sr_strength <= 0:
+            raise ValueError("Support/resistance strength must be positive")
         
         # Store parameters
-        self.ema_slow = ema_slow
-        self.ema_fast = ema_fast
-        self.adx_period = adx_period
-        self.adx_threshold = adx_threshold
+        self.lookback_period = lookback_period
+        self.breakout_threshold = breakout_threshold
+        self.volatility_window = volatility_window
+        self.momentum_window = momentum_window
+        self.sr_strength = sr_strength
         self._warning_count = 0
         
         logger.info(f"{self.name} initialized with:")
-        logger.info(f"  EMA Crossover: {ema_fast}/{ema_slow} (pandas_ta implementation)")
-        logger.info(f"  ADX Filter: {adx_period}-period, threshold <= {adx_threshold} = HOLD")
-        logger.info(f"  Signal Generation: EMA crossover + ADX strength confirmation")
+        logger.info(f"  Lookback Period: {lookback_period} candles")
+        logger.info(f"  Breakout Threshold: {breakout_threshold*100}%")
+        logger.info(f"  Volatility Window: {volatility_window} periods")
+        logger.info(f"  Momentum Window: {momentum_window} periods")
+        logger.info(f"  Support/Resistance Strength: {sr_strength}")
     
     def add_indicators(self, df):
-        """Add EMA and ADX indicators for crossover strategy"""
+        """Add pure price action calculations"""
         try:
             # Ensure sufficient data
-            min_required = max(self.ema_slow, self.ema_fast, self.adx_period) + 5
+            min_required = max(self.lookback_period, self.volatility_window, self.momentum_window) + 5
             if len(df) < min_required:
                 logger.warning(f"Insufficient data: need {min_required}, got {len(df)}")
                 return df
@@ -125,65 +285,199 @@ class SmartTrendCatcher(TradingStrategy):
                     logger.warning(f"Found zero or negative values in {col}, using interpolation")
                     df[col] = df[col].replace(0, np.nan)
                     df[col] = df[col].interpolate(method='linear').bfill().ffill()
-                    
-            # Calculate EMA indicators using pandas_ta
-            df['ema_slow'] = ta.ema(df['close'], length=self.ema_slow)
-            df['ema_fast'] = ta.ema(df['close'], length=self.ema_fast)
             
-            # Calculate ADX indicator using pandas_ta
-            adx_result = ta.adx(high=df['high'], low=df['low'], close=df['close'], length=self.adx_period)
-            df['adx'] = adx_result[f'ADX_{self.adx_period}']
+            # Calculate price momentum
+            df['price_momentum'] = df['close'].pct_change(periods=self.momentum_window)
             
-            # Handle NaN values
-            df['ema_slow'] = df['ema_slow'].interpolate(method='linear').bfill()
-            df['ema_fast'] = df['ema_fast'].interpolate(method='linear').bfill()
-            df['adx'] = df['adx'].interpolate(method='linear').bfill()
+            # Calculate volatility using rolling standard deviation
+            df['returns'] = df['close'].pct_change()
+            df['volatility'] = df['returns'].rolling(window=self.volatility_window).std()
             
-            # EMA crossover detection (need at least 2 periods to detect crossover)
-            if len(df) >= 2:
-                # Current period alignment
-                df['fast_above_slow'] = df['ema_fast'] > df['ema_slow']
-                df['fast_below_slow'] = df['ema_fast'] < df['ema_slow']
-                
-                # Previous period alignment
-                df['fast_above_slow_prev'] = df['fast_above_slow'].shift(1)
-                df['fast_below_slow_prev'] = df['fast_below_slow'].shift(1)
-                
-                # Crossover detection
-                df['bullish_crossover'] = (df['fast_above_slow'] & df['fast_below_slow_prev'])  # Fast crosses above slow
-                df['bearish_crossover'] = (df['fast_below_slow'] & df['fast_above_slow_prev'])  # Fast crosses below slow
-            else:
-                # Not enough data for crossover detection
-                df['fast_above_slow'] = df['ema_fast'] > df['ema_slow']
-                df['fast_below_slow'] = df['ema_fast'] < df['ema_slow']
-                df['fast_above_slow_prev'] = False
-                df['fast_below_slow_prev'] = False
-                df['bullish_crossover'] = False
-                df['bearish_crossover'] = False
+            # Calculate price range
+            df['price_range'] = df['high'] - df['low']
+            df['avg_range'] = df['price_range'].rolling(window=self.lookback_period).mean()
             
-            # ADX strength condition
-            df['adx_strong'] = df['adx'] > self.adx_threshold
-            df['adx_weak'] = df['adx'] <= self.adx_threshold
+            # Calculate support and resistance levels
+            df['resistance'] = df['high'].rolling(window=self.lookback_period).max()
+            df['support'] = df['low'].rolling(window=self.lookback_period).min()
             
-            # Generate signals based on EMA crossover AND ADX strength
-            df['buy_signal'] = df['bullish_crossover'] & df['adx_strong']
-            df['sell_signal'] = df['bearish_crossover'] & df['adx_strong']
-            df['hold_signal'] = df['adx_weak'] | (~df['bullish_crossover'] & ~df['bearish_crossover'])  # ADX weak OR no crossover
+            # Distance from support/resistance (with division by zero protection)
+            df['dist_from_resistance'] = np.where(
+                df['close'] != 0, 
+                (df['resistance'] - df['close']) / df['close'], 
+                0
+            )
+            df['dist_from_support'] = np.where(
+                df['close'] != 0,
+                (df['close'] - df['support']) / df['close'],
+                0
+            )
+            
+            # Breakout detection
+            df['near_resistance'] = df['dist_from_resistance'] < self.breakout_threshold
+            df['near_support'] = df['dist_from_support'] < self.breakout_threshold
+            
+            # Price position within range (with division by zero protection)
+            range_size = df['resistance'] - df['support']
+            df['price_position'] = np.where(
+                range_size != 0,
+                (df['close'] - df['support']) / range_size,
+                0.5  # Default to middle position if no range
+            )
+            
+            # Volume-price analysis (if volume available)
+            if 'volume' in df.columns:
+                df['avg_volume'] = df['volume'].rolling(window=self.lookback_period).mean()
+                # Protect against division by zero for volume ratio
+                df['volume_ratio'] = np.where(
+                    df['avg_volume'] != 0,
+                    df['volume'] / df['avg_volume'],
+                    1.0  # Default to 1.0 if no average volume
+                )
+                df['price_volume_momentum'] = df['price_momentum'] * df['volume_ratio']
+            
+            # Candlestick body analysis
+            df['body_size'] = abs(df['close'] - df['open'])
+            df['upper_shadow'] = df['high'] - np.maximum(df['open'], df['close'])
+            df['lower_shadow'] = np.minimum(df['open'], df['close']) - df['low']
+            df['total_range'] = df['high'] - df['low']
+            
+            # Relative body size (with division by zero protection)
+            df['body_ratio'] = np.where(
+                df['total_range'] != 0,
+                df['body_size'] / df['total_range'],
+                0.5  # Default to 0.5 if no range
+            )
+            
+            # Generate signals based on pure price action
+            self._generate_price_action_signals(df)
             
             return df
             
         except Exception as e:
-            logger.error(f"Error adding EMA crossover+ADX indicators: {e}")
+            logger.error(f"Error adding price action calculations: {e}")
             return df
     
-    def get_signal(self, klines):
-        """Generate EMA crossover+ADX filtered signals"""
+    def _generate_price_action_signals(self, df):
+        """Generate signals based on pure price action analysis"""
         try:
-            min_required = max(self.ema_slow, self.ema_fast, self.adx_period) + 5
+            # Initialize signal columns
+            df['buy_signal'] = False
+            df['sell_signal'] = False
+            df['hold_signal'] = True
+            
+            for i in range(max(self.lookback_period, self.momentum_window), len(df)):
+                current_row = df.iloc[i]
+                
+                # Skip if any critical values are NaN or invalid
+                critical_values = [
+                    current_row.get('price_momentum', 0),
+                    current_row.get('close', 0),
+                    current_row.get('resistance', 0),
+                    current_row.get('support', 0),
+                    current_row.get('price_position', 0.5),
+                    current_row.get('volatility', 0)
+                ]
+                
+                if any(pd.isna(val) or val is None for val in critical_values):
+                    continue
+                
+                buy_score = 0
+                sell_score = 0
+                
+                # Momentum analysis (with NaN protection)
+                momentum = current_row.get('price_momentum', 0)
+                if not pd.isna(momentum):
+                    if momentum > 0.005:  # Positive momentum > 0.5%
+                        buy_score += 2
+                    elif momentum < -0.005:  # Negative momentum < -0.5%
+                        sell_score += 2
+                
+                # Breakout analysis (with safety checks)
+                near_resistance = current_row.get('near_resistance', False)
+                near_support = current_row.get('near_support', False)
+                close_price = current_row.get('close', 0)
+                resistance = current_row.get('resistance', 0)
+                support = current_row.get('support', 0)
+                
+                if not pd.isna(close_price) and not pd.isna(resistance) and resistance > 0:
+                    if near_resistance and close_price > resistance * 0.999:
+                        buy_score += 3  # Strong bullish breakout
+                        
+                if not pd.isna(close_price) and not pd.isna(support) and support > 0:
+                    if near_support and close_price < support * 1.001:
+                        sell_score += 3  # Strong bearish breakdown
+                
+                # Price position analysis (with safety checks)
+                price_position = current_row.get('price_position', 0.5)
+                if not pd.isna(price_position) and not pd.isna(momentum):
+                    if price_position > 0.8:  # Near top of range
+                        if momentum > 0:
+                            buy_score += 1  # Continued strength
+                        else:
+                            sell_score += 1  # Potential reversal
+                    elif price_position < 0.2:  # Near bottom of range
+                        if momentum < 0:
+                            sell_score += 1  # Continued weakness
+                        else:
+                            buy_score += 1  # Potential reversal
+                
+                # Volatility analysis (with safety checks)
+                volatility = current_row.get('volatility', 0)
+                if not pd.isna(volatility) and volatility > 0:
+                    # Calculate mean volatility safely
+                    vol_slice = df['volatility'].iloc[max(0, i-20):i]
+                    vol_mean = vol_slice.mean() if len(vol_slice) > 0 else volatility
+                    
+                    if not pd.isna(vol_mean) and vol_mean > 0:
+                        if volatility > vol_mean * 1.5:
+                            # High volatility - add to existing momentum
+                            if not pd.isna(momentum):
+                                if momentum > 0:
+                                    buy_score += 1
+                                elif momentum < 0:
+                                    sell_score += 1
+                
+                # Volume confirmation (if available, with safety checks)
+                if 'volume_ratio' in df.columns:
+                    volume_ratio = current_row.get('volume_ratio', 1.0)
+                    if not pd.isna(volume_ratio) and volume_ratio > 1.5:  # Above average volume
+                        if not pd.isna(momentum):
+                            if momentum > 0:
+                                buy_score += 1
+                            elif momentum < 0:
+                                sell_score += 1
+                
+                # Candlestick analysis (with safety checks)
+                body_ratio = current_row.get('body_ratio', 0.5)
+                open_price = current_row.get('open', 0)
+                
+                if (not pd.isna(body_ratio) and not pd.isna(open_price) and 
+                    not pd.isna(close_price) and body_ratio > 0.7):  # Strong body (decisive move)
+                    if close_price > open_price:  # Bullish candle
+                        buy_score += 1
+                    else:  # Bearish candle
+                        sell_score += 1
+                
+                # Generate final signal
+                if buy_score >= 4 and buy_score > sell_score:
+                    df.at[i, 'buy_signal'] = True
+                    df.at[i, 'hold_signal'] = False
+                elif sell_score >= 4 and sell_score > buy_score:
+                    df.at[i, 'sell_signal'] = True
+                    df.at[i, 'hold_signal'] = False
+                # Otherwise keep hold_signal = True (default)
+            
+        except Exception as e:
+            logger.error(f"Error generating price action signals: {e}")
+    
+    def get_signal(self, klines):
+        """Generate pure price action signals"""
+        try:
+            min_required = max(self.lookback_period, self.volatility_window, self.momentum_window) + 5
             if not klines or len(klines) < min_required:
-                # Show warning every 10th time to reduce log spam
                 if self._warning_count % 10 == 0:
-                    logger.warning(f"Insufficient data for EMA crossover+ADX signal (need {min_required}, have {len(klines) if klines else 0})")
+                    logger.warning(f"Insufficient data for price action signal (need {min_required}, have {len(klines) if klines else 0})")
                 self._warning_count += 1
                 return None
             
@@ -209,7 +503,7 @@ class SmartTrendCatcher(TradingStrategy):
                 logger.error("Failed to clean price data after interpolation")
                 return None
             
-            # Add EMA crossover and ADX indicators
+            # Add price action calculations
             df = self.add_indicators(df)
             
             if len(df) < 2:
@@ -217,53 +511,199 @@ class SmartTrendCatcher(TradingStrategy):
             
             latest = df.iloc[-1]
             
-            # Validate required columns for crossover detection
-            required_columns = ['buy_signal', 'sell_signal', 'hold_signal', 'ema_fast', 'ema_slow', 'adx', 'bullish_crossover', 'bearish_crossover']
+            # Validate required columns with more lenient checks
+            required_columns = ['buy_signal', 'sell_signal', 'hold_signal']
             
             for col in required_columns:
-                if col not in df.columns or pd.isna(latest[col]):
-                    logger.warning(f"Missing or invalid indicator: {col}")
+                if col not in df.columns:
+                    logger.warning(f"Missing required column: {col}")
                     return None
             
-            # Generate signal based on EMA crossover+ADX combination
+            # Check if we have valid signal data
+            if pd.isna(latest.get('buy_signal')) or pd.isna(latest.get('sell_signal')):
+                logger.warning("Invalid signal data - NaN values found")
+                return None
+            
+            # Generate signal based on pure price action
             signal = None
             
-            # BUY Signal: Bullish crossover AND ADX > threshold
-            if latest['buy_signal']:
+            # BUY Signal: Strong bullish price action
+            if latest.get('buy_signal', False):
                 signal = 'BUY'
-                logger.info(f"🟢 BUY Signal - EMA Bullish Crossover + Strong Trend")
-                logger.info(f"   Fast EMA ({self.ema_fast}) crossed ABOVE Slow EMA ({self.ema_slow})")
-                logger.info(f"   Fast EMA: {latest['ema_fast']:.6f} > Slow EMA: {latest['ema_slow']:.6f}")
-                logger.info(f"   ADX ({self.adx_period}): {latest['adx']:.2f} > {self.adx_threshold} (strong trend)")
-                logger.info(f"   Current Price: {latest['close']:.6f}")
+                logger.info(f"🟢 BUY Signal - Strong Bullish Price Action")
+                momentum = latest.get('price_momentum', 0)
+                if not pd.isna(momentum):
+                    logger.info(f"   Price Momentum: {momentum*100:.2f}%")
+                
+                close_price = latest.get('close', 0)
+                resistance = latest.get('resistance', 0)
+                price_position = latest.get('price_position', 0.5)
+                
+                if not pd.isna(close_price):
+                    logger.info(f"   Current Price: {close_price:.6f}")
+                if not pd.isna(resistance):
+                    logger.info(f"   Resistance Level: {resistance:.6f}")
+                if not pd.isna(price_position):
+                    logger.info(f"   Price Position in Range: {price_position*100:.1f}%")
+                
+                if 'volume_ratio' in df.columns:
+                    volume_ratio = latest.get('volume_ratio', 1.0)
+                    if not pd.isna(volume_ratio):
+                        logger.info(f"   Volume Ratio: {volume_ratio:.2f}x average")
             
-            # SELL Signal: Bearish crossover AND ADX > threshold
-            elif latest['sell_signal']:
+            # SELL Signal: Strong bearish price action
+            elif latest.get('sell_signal', False):
                 signal = 'SELL'
-                logger.info(f"🔴 SELL Signal - EMA Bearish Crossover + Strong Trend")
-                logger.info(f"   Fast EMA ({self.ema_fast}) crossed BELOW Slow EMA ({self.ema_slow})")
-                logger.info(f"   Fast EMA: {latest['ema_fast']:.6f} < Slow EMA: {latest['ema_slow']:.6f}")
-                logger.info(f"   ADX ({self.adx_period}): {latest['adx']:.2f} > {self.adx_threshold} (strong trend)")
-                logger.info(f"   Current Price: {latest['close']:.6f}")
+                logger.info(f"🔴 SELL Signal - Strong Bearish Price Action")
+                momentum = latest.get('price_momentum', 0)
+                if not pd.isna(momentum):
+                    logger.info(f"   Price Momentum: {momentum*100:.2f}%")
+                
+                close_price = latest.get('close', 0)
+                support = latest.get('support', 0)
+                price_position = latest.get('price_position', 0.5)
+                
+                if not pd.isna(close_price):
+                    logger.info(f"   Current Price: {close_price:.6f}")
+                if not pd.isna(support):
+                    logger.info(f"   Support Level: {support:.6f}")
+                if not pd.isna(price_position):
+                    logger.info(f"   Price Position in Range: {price_position*100:.1f}%")
+                
+                if 'volume_ratio' in df.columns:
+                    volume_ratio = latest.get('volume_ratio', 1.0)
+                    if not pd.isna(volume_ratio):
+                        logger.info(f"   Volume Ratio: {volume_ratio:.2f}x average")
             
-            # HOLD Signal: No crossover OR ADX <= threshold (weak trend)
+            # HOLD Signal: No clear price action signal
             else:
                 signal = 'HOLD'
-                if latest['hold_signal'] and latest['adx'] <= self.adx_threshold:
-                    logger.info(f"⚪ HOLD Signal - Weak Trend (ADX Filter)")
-                    logger.info(f"   ADX ({self.adx_period}): {latest['adx']:.2f} <= {self.adx_threshold} (weak trend)")
-                else:
-                    logger.info(f"⚪ HOLD Signal - No EMA Crossover")
-                    logger.info(f"   No crossover detected (waiting for Fast EMA to cross Slow EMA)")
-                logger.info(f"   Fast EMA ({self.ema_fast}): {latest['ema_fast']:.6f}, Slow EMA ({self.ema_slow}): {latest['ema_slow']:.6f}")
-                logger.info(f"   ADX ({self.adx_period}): {latest['adx']:.2f}")
-                logger.info(f"   Current Price: {latest['close']:.6f}")
+                logger.info(f"⚪ HOLD Signal - No Clear Price Action")
+                momentum = latest.get('price_momentum', 0)
+                if not pd.isna(momentum):
+                    logger.info(f"   Price Momentum: {momentum*100:.2f}%")
+                
+                close_price = latest.get('close', 0)
+                support = latest.get('support', 0)
+                resistance = latest.get('resistance', 0)
+                price_position = latest.get('price_position', 0.5)
+                
+                if not pd.isna(close_price):
+                    logger.info(f"   Current Price: {close_price:.6f}")
+                if not pd.isna(support) and not pd.isna(resistance):
+                    logger.info(f"   Support: {support:.6f} | Resistance: {resistance:.6f}")
+                if not pd.isna(price_position):
+                    logger.info(f"   Price Position in Range: {price_position*100:.1f}%")
             
+            # Store signal for history (with safe data)
+            timestamp = latest.get('timestamp')
+            close_price = latest.get('close', 0)
+            momentum = latest.get('price_momentum', 0)
+            
+            if not pd.isna(timestamp) and not pd.isna(close_price) and not pd.isna(momentum):
+                self.signal_history.append({
+                    'timestamp': timestamp,
+                    'signal': signal,
+                    'price': close_price,
+                    'momentum': momentum
+                })
+            
+            self.last_signal = signal
             return signal
             
         except Exception as e:
-            logger.error(f"Error in EMA crossover+ADX signal generation: {e}")
+            logger.error(f"Error in price action signal generation: {e}")
             logger.error(traceback.format_exc())
+            return None
+
+
+class MathematicalMomentumStrategy(TradingStrategy):
+    """
+    Mathematical Momentum Strategy:
+    
+    Pure mathematical approach using:
+    - Rate of change calculations
+    - Statistical momentum analysis
+    - Price acceleration/deceleration
+    - Fibonacci ratios in price movements
+    - Standard deviation breakouts
+    """
+    
+    def __init__(self, momentum_window=14, acceleration_window=7, fibonacci_levels=True):
+        super().__init__("MathematicalMomentumStrategy")
+        self.momentum_window = momentum_window
+        self.acceleration_window = acceleration_window
+        self.fibonacci_levels = fibonacci_levels
+        
+        logger.info(f"{self.name} initialized with mathematical analysis")
+    
+    def add_indicators(self, df):
+        """Add mathematical momentum calculations"""
+        try:
+            # Rate of change
+            df['roc'] = df['close'].pct_change(periods=self.momentum_window)
+            
+            # Price acceleration (change in momentum)
+            df['momentum'] = df['close'].pct_change()
+            df['acceleration'] = df['momentum'].diff()
+            
+            # Statistical measures (with division by zero protection)
+            rolling_mean = df['close'].rolling(20).mean()
+            rolling_std = df['close'].rolling(20).std()
+            df['z_score'] = np.where(
+                rolling_std != 0,
+                (df['close'] - rolling_mean) / rolling_std,
+                0  # Default to 0 if no standard deviation
+            )
+            
+            # Fibonacci-based analysis
+            if self.fibonacci_levels:
+                swing_high = df['high'].rolling(20).max()
+                swing_low = df['low'].rolling(20).min()
+                range_size = swing_high - swing_low
+                
+                df['fib_618'] = swing_low + 0.618 * range_size
+                df['fib_382'] = swing_low + 0.382 * range_size
+            
+            # Generate mathematical signals
+            df['buy_signal'] = (df['roc'] > 0.01) & (df['acceleration'] > 0) & (df['z_score'] > 1)
+            df['sell_signal'] = (df['roc'] < -0.01) & (df['acceleration'] < 0) & (df['z_score'] < -1)
+            df['hold_signal'] = ~(df['buy_signal'] | df['sell_signal'])
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error in mathematical calculations: {e}")
+            return df
+    
+    def get_signal(self, klines):
+        """Generate mathematical momentum signals"""
+        try:
+            if not klines or len(klines) < 30:
+                return None
+            
+            df = pd.DataFrame(klines)
+            df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 
+                         'close_time', 'quote_volume', 'trades', 'taker_buy_base', 'taker_buy_quote', 'ignore']
+            
+            numeric_columns = ['open', 'high', 'low', 'close', 'volume']
+            for col in numeric_columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            df = self.add_indicators(df)
+            latest = df.iloc[-1]
+            
+            if latest['buy_signal']:
+                logger.info(f"🟢 MATHEMATICAL BUY - ROC: {latest['roc']*100:.2f}%, Z-Score: {latest['z_score']:.2f}")
+                return 'BUY'
+            elif latest['sell_signal']:
+                logger.info(f"🔴 MATHEMATICAL SELL - ROC: {latest['roc']*100:.2f}%, Z-Score: {latest['z_score']:.2f}")
+                return 'SELL'
+            else:
+                return 'HOLD'
+                
+        except Exception as e:
+            logger.error(f"Error in mathematical momentum signal: {e}")
             return None
 
 
@@ -271,19 +711,33 @@ class SmartTrendCatcher(TradingStrategy):
 def get_strategy(strategy_name):
     """Factory function to get a strategy by name"""
     strategies = {
-        'SmartTrendCatcher': SmartTrendCatcher(
-            ema_slow=SLOW_EMA,
-            ema_fast=FAST_EMA,
-            adx_period=ADX_PERIOD,
-            adx_threshold=ADX_THRESHOLD
+        'PurePriceActionStrategy': PurePriceActionStrategy(
+            lookback_period=PRICE_ACTION_LOOKBACK,
+            breakout_threshold=BREAKOUT_THRESHOLD,
+            volatility_window=VOLATILITY_WINDOW,
+            momentum_window=MOMENTUM_WINDOW,
+            sr_strength=SUPPORT_RESISTANCE_STRENGTH
+        ),
+        'MathematicalMomentumStrategy': MathematicalMomentumStrategy(
+            momentum_window=MOMENTUM_WINDOW,
+            acceleration_window=7,
+            fibonacci_levels=True
+        ),
+        # Keep compatibility with old name
+        'SmartTrendCatcher': PurePriceActionStrategy(
+            lookback_period=PRICE_ACTION_LOOKBACK,
+            breakout_threshold=BREAKOUT_THRESHOLD,
+            volatility_window=VOLATILITY_WINDOW,
+            momentum_window=MOMENTUM_WINDOW,
+            sr_strength=SUPPORT_RESISTANCE_STRENGTH
         ),
     }
     
     if strategy_name in strategies:
         return strategies[strategy_name]
     
-    logger.warning(f"Strategy {strategy_name} not found. Defaulting to SmartTrendCatcher.")
-    return strategies['SmartTrendCatcher']
+    logger.warning(f"Strategy {strategy_name} not found. Defaulting to PurePriceActionStrategy.")
+    return strategies['PurePriceActionStrategy']
 
 
 def get_strategy_for_symbol(symbol, strategy_name=None):
@@ -292,5 +746,5 @@ def get_strategy_for_symbol(symbol, strategy_name=None):
     if strategy_name:
         return get_strategy(strategy_name)
     
-    # Default to SmartTrendCatcher for any symbol
-    return get_strategy('SmartTrendCatcher')
+    # Default to PurePriceActionStrategy for any symbol
+    return get_strategy('PurePriceActionStrategy')

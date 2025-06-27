@@ -15,8 +15,9 @@ Created by **[Minhajul Islam](https://github.com/minhajulislamme)** | 📧 Profe
 
 ### 📊 **Advanced Trading Strategies**
 
-- **SmartTrendCatcher**: EMA Crossover + ADX trend strength filtering
-- **Custom Pine Script Indicators**: ADX Filter and EMA Cross implementations
+- **PurePriceActionStrategy**: Pure price action analysis with mathematical calculations
+- **MathematicalMomentumStrategy**: Statistical momentum and Fibonacci-based analysis
+- **No Traditional Indicators**: Pure price movement analysis without lagging indicators
 - **Multi-timeframe Analysis**: 1m to 1M timeframe support
 - **Real-time Signal Generation**: WebSocket-based live data processing
 
@@ -173,38 +174,41 @@ SEND_DAILY_REPORT=true
 
 ## 🧪 **Trading Strategies**
 
-### 📈 **SmartTrendCatcher Strategy**
+### 📈 **PurePriceActionStrategy**
 
-The flagship strategy combining **EMA Crossover** with **ADX trend strength filtering**:
+The flagship strategy using **pure price action analysis** with **mathematical calculations**:
 
-#### **Technical Indicators:**
+#### **Core Components:**
 
-- **Fast EMA (10)**: Short-term trend direction
-- **Slow EMA (30)**: Long-term trend direction
-- **ADX (14)**: Trend strength measurement
+- **Price Momentum**: Mathematical rate of change calculations
+- **Volatility Analysis**: Statistical standard deviation measurements
+- **Support/Resistance**: Dynamic level detection using local highs/lows
+- **Breakout Detection**: Threshold-based breakout identification
+- **Candlestick Patterns**: Pattern recognition using price relationships
 
 #### **Signal Logic:**
 
 ```python
 # BUY Signal
-if fast_ema > slow_ema and adx > 20:
+if bullish_breakout and positive_momentum and strong_volume:
     return "BUY"
 
 # SELL Signal
-elif fast_ema < slow_ema and adx > 20:
+elif bearish_breakdown and negative_momentum and strong_volume:
     return "SELL"
 
-# HOLD Signal (Weak trend)
-elif adx <= 20:
+# HOLD Signal (Conflicting signals or ranging market)
+else:
     return "HOLD"
 ```
 
 #### **Key Benefits:**
 
-- ✅ Filters out weak trends and sideways markets
-- ✅ Reduces false signals during consolidation
-- ✅ Only trades on confirmed trend changes
-- ✅ Combines direction change with strength confirmation
+- ✅ No lagging indicators - responds immediately to price changes
+- ✅ Works in all market conditions (trending, ranging, volatile)
+- ✅ Mathematical approach reduces emotional bias
+- ✅ Pure price and volume analysis
+- ✅ Dynamic support/resistance level detection
 
 ---
 
@@ -214,12 +218,12 @@ elif adx <= 20:
 
 ```bash
 # Backtest specific symbol and strategy
-python main.py --backtest --symbol SOLUSDT --strategy SmartTrendCatcher --start-date "30 days ago"
+python main.py --backtest --symbol SOLUSDT --strategy PurePriceActionStrategy --start-date "30 days ago"
 
-# Extended backtest period
-python main.py --backtest --symbol BTCUSDT --strategy SmartTrendCatcher --start-date "90 days ago"
+# Mathematical momentum strategy backtest
+python main.py --backtest --symbol BTCUSDT --strategy MathematicalMomentumStrategy --start-date "90 days ago"
 
-# Small account testing
+# Small account testing with pure price action
 python main.py --backtest --small-account --symbol ADAUSDT --start-date "30 days ago"
 ```
 

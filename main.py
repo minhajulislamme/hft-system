@@ -404,12 +404,12 @@ def monitor_buffer_health():
 def test_strategies():
     """Test loading the strategies"""
     from modules.strategies import get_strategy
-    
-    # Test RAYSOL strategy
-    raysol_strategy = get_strategy('SmartTrendCatcher')
-    logger.info(f"Loaded strategy: {raysol_strategy.strategy_name}")
-    
-    return raysol_strategy
+
+    # Test Pure Price Action strategy
+    strategy = get_strategy('PurePriceActionStrategy')
+    logger.info(f"Loaded strategy: {strategy.strategy_name}")
+
+    return strategy
 
 # Global variables
 running = True

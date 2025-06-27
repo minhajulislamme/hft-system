@@ -29,7 +29,7 @@ TRADING_SYMBOL = os.getenv('TRADING_SYMBOL', 'ETHUSDT')
 TRADING_TYPE = 'FUTURES'  # Use futures trading
 LEVERAGE = int(os.getenv('LEVERAGE', '20'))
 MARGIN_TYPE = os.getenv('MARGIN_TYPE', 'CROSSED')  # ISOLATED or CROSSED
-STRATEGY = os.getenv('STRATEGY', 'SmartTrendCatcher')
+STRATEGY = os.getenv('STRATEGY', 'PurePriceActionStrategy')
 
 # Position sizing - Enhanced risk management (aligned with SmartTrendCatcher)
 INITIAL_BALANCE = float(os.getenv('INITIAL_BALANCE', '50.0'))
@@ -56,21 +56,20 @@ COMPOUND_MIN_WIN_RATE = float(os.getenv('COMPOUND_MIN_WIN_RATE', '0.6'))  # Requ
 COMPOUND_MAX_DRAWDOWN = float(os.getenv('COMPOUND_MAX_DRAWDOWN', '0.15'))  # Pause if >15% drawdown
 COMPOUND_SCALING_FACTOR = float(os.getenv('COMPOUND_SCALING_FACTOR', '0.5'))  # Reduce compounding if performance poor
 
-# Technical indicator parameters - EMA + ADX Strategy
+# Pure Price Action Strategy Parameters - No Traditional Indicators
 
-# EMA parameters (10/30 EMA alignment for every-candle signals)
-FAST_EMA = int(os.getenv('FAST_EMA', '10'))    # Fast EMA (10 period)
-SLOW_EMA = int(os.getenv('SLOW_EMA', '30'))    # Slow EMA (30 period)
+# Price action analysis parameters
+PRICE_ACTION_LOOKBACK = int(os.getenv('PRICE_ACTION_LOOKBACK', '20'))    # Lookback period for price analysis
+BREAKOUT_THRESHOLD = float(os.getenv('BREAKOUT_THRESHOLD', '0.02'))      # 2% breakout threshold
+VOLATILITY_WINDOW = int(os.getenv('VOLATILITY_WINDOW', '14'))            # Volatility calculation window
+MOMENTUM_WINDOW = int(os.getenv('MOMENTUM_WINDOW', '10'))                # Momentum calculation window
+SUPPORT_RESISTANCE_STRENGTH = int(os.getenv('SUPPORT_RESISTANCE_STRENGTH', '3'))  # S/R level strength
 
-# ADX parameters (Average Directional Index for trend strength)
-ADX_PERIOD = int(os.getenv('ADX_PERIOD', '14'))    # ADX period (14 is standard)
-ADX_THRESHOLD = float(os.getenv('ADX_THRESHOLD', '20'))  # ADX threshold for trend strength (<=20 = weak trend = HOLD)
-
-TIMEFRAME = os.getenv('TIMEFRAME', '15m')  # Default to 15 minutes, can be overridden
+TIMEFRAME = os.getenv('TIMEFRAME', '5m')  # Default to 15 minutes, can be overridden
 
 # Risk management - Enhanced stop loss and take profit settings
 USE_STOP_LOSS = os.getenv('USE_STOP_LOSS', 'True').lower() == 'true'
-STOP_LOSS_PCT = float(os.getenv('STOP_LOSS_PCT', '0.015'))  # 1.5% stop loss (more conservative)
+STOP_LOSS_PCT = float(os.getenv('STOP_LOSS_PCT', '0.01'))  # 1% stop loss (more conservative)
 TRAILING_STOP = os.getenv('TRAILING_STOP', 'True').lower() == 'true'
 TRAILING_STOP_PCT = float(os.getenv('TRAILING_STOP_PCT', '0.03'))  # 3% trailing stop
 UPDATE_TRAILING_ON_HOLD = os.getenv('UPDATE_TRAILING_ON_HOLD', 'True').lower() == 'true'  # Update trailing stop on HOLD signals
@@ -86,12 +85,12 @@ BACKTEST_INITIAL_BALANCE = float(os.getenv('BACKTEST_INITIAL_BALANCE', '50.0'))
 BACKTEST_COMMISSION = float(os.getenv('BACKTEST_COMMISSION', '0.0004'))
 BACKTEST_USE_AUTO_COMPOUND = os.getenv('BACKTEST_USE_AUTO_COMPOUND', 'True').lower() == 'true'  # Enabled for enhanced auto-compounding test
 
-# Enhanced validation requirements - More realistic for 90-day backtests
+# Enhanced validation requirements - Optimized for pure price action strategies
 BACKTEST_BEFORE_LIVE = os.getenv('BACKTEST_BEFORE_LIVE', 'True').lower() == 'true'
-BACKTEST_MIN_PROFIT_PCT = float(os.getenv('BACKTEST_MIN_PROFIT_PCT', '10.0'))  # Reduced for longer periods
-BACKTEST_MIN_WIN_RATE = float(os.getenv('BACKTEST_MIN_WIN_RATE', '40.0'))  # More realistic for 90 days
-BACKTEST_MAX_DRAWDOWN = float(os.getenv('BACKTEST_MAX_DRAWDOWN', '30.0'))  # Allow higher DD for longer periods
-BACKTEST_MIN_PROFIT_FACTOR = float(os.getenv('BACKTEST_MIN_PROFIT_FACTOR', '1.2'))  # More conservative
+BACKTEST_MIN_PROFIT_PCT = float(os.getenv('BACKTEST_MIN_PROFIT_PCT', '10.0'))  # Suitable for price action
+BACKTEST_MIN_WIN_RATE = float(os.getenv('BACKTEST_MIN_WIN_RATE', '40.0'))  # Realistic for pure price action
+BACKTEST_MAX_DRAWDOWN = float(os.getenv('BACKTEST_MAX_DRAWDOWN', '30.0'))  # Allow for volatility
+BACKTEST_MIN_PROFIT_FACTOR = float(os.getenv('BACKTEST_MIN_PROFIT_FACTOR', '1.2'))  # Conservative
 BACKTEST_PERIOD = os.getenv('BACKTEST_PERIOD', '90 days')  # Default to 90 days for comprehensive testing
 
 # Logging and notifications
