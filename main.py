@@ -2279,11 +2279,11 @@ def perform_test_trade(symbol=TRADING_SYMBOL):
                 qty_precision = 3
                 min_qty = 0.001
                 min_notional = 100.0
-            elif symbol == "ETHUSDT":
+            elif symbol == "SOLUSDT":
                 qty_precision = 3  
                 min_qty = 0.001
                 min_notional = 100.0
-            elif symbol == "ETHUSDT":
+            elif symbol == "SOLUSDT":
                 qty_precision = 1
                 min_qty = 0.1
                 min_notional = 100.0

@@ -349,6 +349,50 @@ class PurePriceActionStrategy(TradingStrategy):
                 0.5  # Default to 0.5 if no range
             )
             
+            # Enhanced Support/Resistance Analysis Indicators
+            
+            # Calculate more precise support/resistance levels using pivots
+            df['pivot_high'] = df['high'].rolling(window=5, center=True).max() == df['high']
+            df['pivot_low'] = df['low'].rolling(window=5, center=True).min() == df['low']
+            
+            # Dynamic support/resistance based on recent price action
+            df['dynamic_resistance'] = df['high'].rolling(window=self.lookback_period//2).max()
+            df['dynamic_support'] = df['low'].rolling(window=self.lookback_period//2).min()
+            
+            # Support/Resistance strength based on number of touches
+            df['resistance_touches'] = 0
+            df['support_touches'] = 0
+            
+            for i in range(self.lookback_period, len(df)):
+                # Count resistance touches (price came within 0.5% of resistance)
+                resistance_level = df.iloc[i]['resistance']
+                if not pd.isna(resistance_level) and resistance_level > 0:
+                    recent_highs = df['high'].iloc[i-self.lookback_period:i]
+                    touches = ((recent_highs >= resistance_level * 0.995) & 
+                              (recent_highs <= resistance_level * 1.005)).sum()
+                    df.at[i, 'resistance_touches'] = touches
+                
+                # Count support touches (price came within 0.5% of support)
+                support_level = df.iloc[i]['support']
+                if not pd.isna(support_level) and support_level > 0:
+                    recent_lows = df['low'].iloc[i-self.lookback_period:i]
+                    touches = ((recent_lows >= support_level * 0.995) & 
+                              (recent_lows <= support_level * 1.005)).sum()
+                    df.at[i, 'support_touches'] = touches
+            
+            # Rejection detection indicators
+            df['at_resistance'] = (df['high'] >= df['resistance'] * 0.998) & (df['high'] <= df['resistance'] * 1.002)
+            df['at_support'] = (df['low'] >= df['support'] * 0.998) & (df['low'] <= df['support'] * 1.002)
+            
+            # Breakout confirmation indicators
+            df['resistance_broken'] = df['close'] > df['resistance'] * 1.002
+            df['support_broken'] = df['close'] < df['support'] * 0.998
+            
+            # Previous candle analysis for rejection patterns
+            df['prev_close'] = df['close'].shift(1)
+            df['prev_high'] = df['high'].shift(1)
+            df['prev_low'] = df['low'].shift(1)
+            
             # Generate signals based on pure price action
             self._generate_price_action_signals(df)
             
@@ -393,20 +437,63 @@ class PurePriceActionStrategy(TradingStrategy):
                     elif momentum < -0.005:  # Negative momentum < -0.5%
                         sell_score += 2
                 
-                # Breakout analysis (with safety checks)
+                # Enhanced Support/Resistance Analysis
                 near_resistance = current_row.get('near_resistance', False)
                 near_support = current_row.get('near_support', False)
                 close_price = current_row.get('close', 0)
                 resistance = current_row.get('resistance', 0)
                 support = current_row.get('support', 0)
                 
-                if not pd.isna(close_price) and not pd.isna(resistance) and resistance > 0:
-                    if near_resistance and close_price > resistance * 0.999:
-                        buy_score += 3  # Strong bullish breakout
+                # Get previous candle data for rejection/breakout analysis
+                if i > 0:
+                    prev_row = df.iloc[i-1]
+                    prev_close = prev_row.get('close', 0)
+                    prev_low = prev_row.get('low', 0)
+                    prev_high = prev_row.get('high', 0)
+                    current_low = current_row.get('low', 0)
+                    current_high = current_row.get('high', 0)
+                    
+                    # RESISTANCE LEVEL ANALYSIS
+                    if not pd.isna(close_price) and not pd.isna(resistance) and resistance > 0:
                         
-                if not pd.isna(close_price) and not pd.isna(support) and support > 0:
-                    if near_support and close_price < support * 1.001:
-                        sell_score += 3  # Strong bearish breakdown
+                        # 1. RESISTANCE BREAKOUT → BUY Signal (Strong Bullish)
+                        if close_price > resistance * 1.002:  # 0.2% above resistance
+                            buy_score += 4  # Strong bullish breakout
+                            logger.debug(f"Resistance breakout detected: {close_price:.6f} > {resistance:.6f}")
+                        
+                        # 2. RESISTANCE REJECTION → SELL Signal (Bearish Rejection)
+                        elif (not pd.isna(current_high) and not pd.isna(prev_high) and 
+                              current_high >= resistance * 0.998 and  # Touched resistance
+                              close_price < resistance * 0.995 and    # Closed below resistance
+                              prev_close < resistance):               # Previous was below resistance
+                            sell_score += 3  # Bearish rejection at resistance
+                            logger.debug(f"Resistance rejection detected: touched {resistance:.6f}, closed at {close_price:.6f}")
+                    
+                    # SUPPORT LEVEL ANALYSIS  
+                    if not pd.isna(close_price) and not pd.isna(support) and support > 0:
+                        
+                        # 3. SUPPORT BREAKOUT → SELL Signal (Strong Bearish)
+                        if close_price < support * 0.998:  # 0.2% below support
+                            sell_score += 4  # Strong bearish breakdown
+                            logger.debug(f"Support breakdown detected: {close_price:.6f} < {support:.6f}")
+                        
+                        # 4. SUPPORT REJECTION → BUY Signal (Bullish Bounce)
+                        elif (not pd.isna(current_low) and not pd.isna(prev_low) and 
+                              current_low <= support * 1.002 and    # Touched support
+                              close_price > support * 1.005 and    # Closed above support
+                              prev_close > support):               # Previous was above support
+                            buy_score += 3  # Bullish bounce from support
+                            logger.debug(f"Support rejection detected: touched {support:.6f}, closed at {close_price:.6f}")
+                    
+                    # Additional confirmation for breakouts with momentum
+                    if not pd.isna(momentum):
+                        # Confirm resistance breakout with positive momentum
+                        if close_price > resistance * 1.001 and momentum > 0.003:
+                            buy_score += 1  # Momentum confirmation
+                        
+                        # Confirm support breakdown with negative momentum  
+                        if close_price < support * 0.999 and momentum < -0.003:
+                            sell_score += 1  # Momentum confirmation
                 
                 # Price position analysis (with safety checks)
                 price_position = current_row.get('price_position', 0.5)
@@ -537,14 +624,28 @@ class PurePriceActionStrategy(TradingStrategy):
                 
                 close_price = latest.get('close', 0)
                 resistance = latest.get('resistance', 0)
+                support = latest.get('support', 0)
                 price_position = latest.get('price_position', 0.5)
                 
                 if not pd.isna(close_price):
                     logger.info(f"   Current Price: {close_price:.6f}")
                 if not pd.isna(resistance):
                     logger.info(f"   Resistance Level: {resistance:.6f}")
+                if not pd.isna(support):
+                    logger.info(f"   Support Level: {support:.6f}")
                 if not pd.isna(price_position):
                     logger.info(f"   Price Position in Range: {price_position*100:.1f}%")
+                
+                # Check for specific buy reasons
+                if not pd.isna(close_price) and not pd.isna(resistance) and resistance > 0:
+                    if close_price > resistance * 1.002:
+                        logger.info(f"   🚀 RESISTANCE BREAKOUT: Price broke above {resistance:.6f}")
+                
+                if not pd.isna(close_price) and not pd.isna(support) and support > 0:
+                    current_low = latest.get('low', 0)
+                    if (not pd.isna(current_low) and current_low <= support * 1.002 and 
+                        close_price > support * 1.005):
+                        logger.info(f"   💪 SUPPORT REJECTION: Price bounced from {support:.6f}")
                 
                 if 'volume_ratio' in df.columns:
                     volume_ratio = latest.get('volume_ratio', 1.0)
@@ -561,14 +662,28 @@ class PurePriceActionStrategy(TradingStrategy):
                 
                 close_price = latest.get('close', 0)
                 support = latest.get('support', 0)
+                resistance = latest.get('resistance', 0)
                 price_position = latest.get('price_position', 0.5)
                 
                 if not pd.isna(close_price):
                     logger.info(f"   Current Price: {close_price:.6f}")
                 if not pd.isna(support):
                     logger.info(f"   Support Level: {support:.6f}")
+                if not pd.isna(resistance):
+                    logger.info(f"   Resistance Level: {resistance:.6f}")
                 if not pd.isna(price_position):
                     logger.info(f"   Price Position in Range: {price_position*100:.1f}%")
+                
+                # Check for specific sell reasons
+                if not pd.isna(close_price) and not pd.isna(support) and support > 0:
+                    if close_price < support * 0.998:
+                        logger.info(f"   📉 SUPPORT BREAKDOWN: Price broke below {support:.6f}")
+                
+                if not pd.isna(close_price) and not pd.isna(resistance) and resistance > 0:
+                    current_high = latest.get('high', 0)
+                    if (not pd.isna(current_high) and current_high >= resistance * 0.998 and 
+                        close_price < resistance * 0.995):
+                        logger.info(f"   🔻 RESISTANCE REJECTION: Price rejected at {resistance:.6f}")
                 
                 if 'volume_ratio' in df.columns:
                     volume_ratio = latest.get('volume_ratio', 1.0)
@@ -615,96 +730,71 @@ class PurePriceActionStrategy(TradingStrategy):
             logger.error(f"Error in price action signal generation: {e}")
             logger.error(traceback.format_exc())
             return None
-
-
-class MathematicalMomentumStrategy(TradingStrategy):
-    """
-    Mathematical Momentum Strategy:
     
-    Pure mathematical approach using:
-    - Rate of change calculations
-    - Statistical momentum analysis
-    - Price acceleration/deceleration
-    - Fibonacci ratios in price movements
-    - Standard deviation breakouts
-    """
-    
-    def __init__(self, momentum_window=14, acceleration_window=7, fibonacci_levels=True):
-        super().__init__("MathematicalMomentumStrategy")
-        self.momentum_window = momentum_window
-        self.acceleration_window = acceleration_window
-        self.fibonacci_levels = fibonacci_levels
+    def analyze_support_resistance_action(self, df, index):
+        """
+        Analyze support/resistance price action for the current candle
+        Returns a dictionary with analysis results
+        """
+        if index < 1 or index >= len(df):
+            return {}
         
-        logger.info(f"{self.name} initialized with mathematical analysis")
-    
-    def add_indicators(self, df):
-        """Add mathematical momentum calculations"""
-        try:
-            # Rate of change
-            df['roc'] = df['close'].pct_change(periods=self.momentum_window)
+        current = df.iloc[index]
+        previous = df.iloc[index-1]
+        
+        analysis = {
+            'resistance_breakout': False,
+            'resistance_rejection': False,
+            'support_breakdown': False,
+            'support_rejection': False,
+            'action_type': 'none',
+            'strength': 0
+        }
+        
+        close_price = current.get('close', 0)
+        high_price = current.get('high', 0)
+        low_price = current.get('low', 0)
+        resistance = current.get('resistance', 0)
+        support = current.get('support', 0)
+        prev_close = previous.get('close', 0)
+        
+        # Skip if any critical values are invalid
+        if any(pd.isna(val) or val <= 0 for val in [close_price, resistance, support]):
+            return analysis
+        
+        # Resistance Analysis
+        if resistance > 0:
+            # Resistance Breakout (Close above resistance)
+            if close_price > resistance * 1.002:  # 0.2% above resistance
+                analysis['resistance_breakout'] = True
+                analysis['action_type'] = 'resistance_breakout'
+                analysis['strength'] = min(5, int((close_price - resistance) / resistance * 500))
             
-            # Price acceleration (change in momentum)
-            df['momentum'] = df['close'].pct_change()
-            df['acceleration'] = df['momentum'].diff()
+            # Resistance Rejection (Touched resistance but closed below)
+            elif (high_price >= resistance * 0.998 and  # Touched resistance
+                  close_price < resistance * 0.995 and  # Closed significantly below
+                  prev_close < resistance):              # Previous was below resistance
+                analysis['resistance_rejection'] = True
+                analysis['action_type'] = 'resistance_rejection'
+                analysis['strength'] = min(5, int((resistance - close_price) / resistance * 500))
+        
+        # Support Analysis
+        if support > 0:
+            # Support Breakdown (Close below support)
+            if close_price < support * 0.998:  # 0.2% below support
+                analysis['support_breakdown'] = True
+                analysis['action_type'] = 'support_breakdown'
+                analysis['strength'] = min(5, int((support - close_price) / support * 500))
             
-            # Statistical measures (with division by zero protection)
-            rolling_mean = df['close'].rolling(20).mean()
-            rolling_std = df['close'].rolling(20).std()
-            df['z_score'] = np.where(
-                rolling_std != 0,
-                (df['close'] - rolling_mean) / rolling_std,
-                0  # Default to 0 if no standard deviation
-            )
-            
-            # Fibonacci-based analysis
-            if self.fibonacci_levels:
-                swing_high = df['high'].rolling(20).max()
-                swing_low = df['low'].rolling(20).min()
-                range_size = swing_high - swing_low
-                
-                df['fib_618'] = swing_low + 0.618 * range_size
-                df['fib_382'] = swing_low + 0.382 * range_size
-            
-            # Generate mathematical signals
-            df['buy_signal'] = (df['roc'] > 0.01) & (df['acceleration'] > 0) & (df['z_score'] > 1)
-            df['sell_signal'] = (df['roc'] < -0.01) & (df['acceleration'] < 0) & (df['z_score'] < -1)
-            df['hold_signal'] = ~(df['buy_signal'] | df['sell_signal'])
-            
-            return df
-            
-        except Exception as e:
-            logger.error(f"Error in mathematical calculations: {e}")
-            return df
-    
-    def get_signal(self, klines):
-        """Generate mathematical momentum signals"""
-        try:
-            if not klines or len(klines) < 30:
-                return None
-            
-            df = pd.DataFrame(klines)
-            df.columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 
-                         'close_time', 'quote_volume', 'trades', 'taker_buy_base', 'taker_buy_quote', 'ignore']
-            
-            numeric_columns = ['open', 'high', 'low', 'close', 'volume']
-            for col in numeric_columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            df = self.add_indicators(df)
-            latest = df.iloc[-1]
-            
-            if latest['buy_signal']:
-                logger.info(f"🟢 MATHEMATICAL BUY - ROC: {latest['roc']*100:.2f}%, Z-Score: {latest['z_score']:.2f}")
-                return 'BUY'
-            elif latest['sell_signal']:
-                logger.info(f"🔴 MATHEMATICAL SELL - ROC: {latest['roc']*100:.2f}%, Z-Score: {latest['z_score']:.2f}")
-                return 'SELL'
-            else:
-                return 'HOLD'
-                
-        except Exception as e:
-            logger.error(f"Error in mathematical momentum signal: {e}")
-            return None
+            # Support Rejection (Touched support but closed above)
+            elif (low_price <= support * 1.002 and   # Touched support
+                  close_price > support * 1.005 and  # Closed significantly above
+                  prev_close > support):              # Previous was above support
+                analysis['support_rejection'] = True
+                analysis['action_type'] = 'support_rejection'
+                analysis['strength'] = min(5, int((close_price - support) / support * 500))
+        
+        return analysis
 
 
 # Factory function to get a strategy by name
@@ -717,11 +807,6 @@ def get_strategy(strategy_name):
             volatility_window=VOLATILITY_WINDOW,
             momentum_window=MOMENTUM_WINDOW,
             sr_strength=SUPPORT_RESISTANCE_STRENGTH
-        ),
-        'MathematicalMomentumStrategy': MathematicalMomentumStrategy(
-            momentum_window=MOMENTUM_WINDOW,
-            acceleration_window=7,
-            fibonacci_levels=True
         ),
         # Keep compatibility with old name
         'SmartTrendCatcher': PurePriceActionStrategy(
