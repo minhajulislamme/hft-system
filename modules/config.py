@@ -25,7 +25,7 @@ else:
 RECV_WINDOW = int(os.getenv('BINANCE_RECV_WINDOW', '10000'))
 
 # Trading parameters
-TRADING_SYMBOL = os.getenv('TRADING_SYMBOL', 'SOLUSDT')
+TRADING_SYMBOL = os.getenv('TRADING_SYMBOL', 'BTCUSDT')
 TRADING_TYPE = 'FUTURES'  # Use futures trading
 LEVERAGE = int(os.getenv('LEVERAGE', '20'))
 MARGIN_TYPE = os.getenv('MARGIN_TYPE', 'CROSSED')  # ISOLATED or CROSSED
@@ -69,14 +69,14 @@ TIMEFRAME = os.getenv('TIMEFRAME', '5m')  # Default to 15 minutes, can be overri
 
 # Risk management - Enhanced stop loss and take profit settings
 USE_STOP_LOSS = os.getenv('USE_STOP_LOSS', 'True').lower() == 'true'
-STOP_LOSS_PCT = float(os.getenv('STOP_LOSS_PCT', '0.01'))  # 1% stop loss (more conservative)
+STOP_LOSS_PCT = float(os.getenv('STOP_LOSS_PCT', '0.005'))  # 0.5% stop loss (more conservative)
 TRAILING_STOP = os.getenv('TRAILING_STOP', 'True').lower() == 'true'
-TRAILING_STOP_PCT = float(os.getenv('TRAILING_STOP_PCT', '0.01'))  # 3% trailing stop
+TRAILING_STOP_PCT = float(os.getenv('TRAILING_STOP_PCT', '0.01'))  # 1% trailing stop
 UPDATE_TRAILING_ON_HOLD = os.getenv('UPDATE_TRAILING_ON_HOLD', 'True').lower() == 'true'  # Update trailing stop on HOLD signals
 
 # Take profit settings - Fixed take profit (not trailing)
 USE_TAKE_PROFIT = os.getenv('USE_TAKE_PROFIT', 'True').lower() == 'true'
-TAKE_PROFIT_PCT = float(os.getenv('TAKE_PROFIT_PCT', '0.04'))  # 4% fixed take profit
+TAKE_PROFIT_PCT = float(os.getenv('TAKE_PROFIT_PCT', '0.015'))  # 1.5% fixed take profit
 
 # Enhanced backtesting parameters
 BACKTEST_START_DATE = os.getenv('BACKTEST_START_DATE', '2023-01-01')
