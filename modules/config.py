@@ -65,6 +65,34 @@ VOLATILITY_WINDOW = int(os.getenv('VOLATILITY_WINDOW', '14'))            # Volat
 MOMENTUM_WINDOW = int(os.getenv('MOMENTUM_WINDOW', '10'))                # Momentum calculation window
 SUPPORT_RESISTANCE_STRENGTH = int(os.getenv('SUPPORT_RESISTANCE_STRENGTH', '3'))  # S/R level strength
 
+# Enhanced Configurable Thresholds for Pure Price Action Strategy
+# Resistance Level Thresholds
+RESISTANCE_BREAKOUT_THRESHOLD = float(os.getenv('RESISTANCE_BREAKOUT_THRESHOLD', '1.002'))  # 0.2% above resistance
+RESISTANCE_REJECTION_THRESHOLD = float(os.getenv('RESISTANCE_REJECTION_THRESHOLD', '0.995'))  # 0.5% below resistance
+RESISTANCE_TOUCH_THRESHOLD = float(os.getenv('RESISTANCE_TOUCH_THRESHOLD', '0.998'))  # Within 0.2% of resistance
+
+# Support Level Thresholds
+SUPPORT_BREAKDOWN_THRESHOLD = float(os.getenv('SUPPORT_BREAKDOWN_THRESHOLD', '0.998'))  # 0.2% below support
+SUPPORT_REJECTION_THRESHOLD = float(os.getenv('SUPPORT_REJECTION_THRESHOLD', '1.005'))  # 0.5% above support
+SUPPORT_TOUCH_THRESHOLD = float(os.getenv('SUPPORT_TOUCH_THRESHOLD', '1.002'))  # Within 0.2% of support
+
+# Momentum Analysis Thresholds
+MOMENTUM_POSITIVE_THRESHOLD = float(os.getenv('MOMENTUM_POSITIVE_THRESHOLD', '0.005'))  # 0.5% positive momentum
+MOMENTUM_NEGATIVE_THRESHOLD = float(os.getenv('MOMENTUM_NEGATIVE_THRESHOLD', '-0.005'))  # 0.5% negative momentum
+MOMENTUM_CONFIRMATION_THRESHOLD = float(os.getenv('MOMENTUM_CONFIRMATION_THRESHOLD', '0.003'))  # 0.3% for confirmation
+
+# Market Condition Thresholds
+VOLATILITY_MULTIPLIER = float(os.getenv('VOLATILITY_MULTIPLIER', '1.5'))  # High volatility threshold
+VOLUME_RATIO_THRESHOLD = float(os.getenv('VOLUME_RATIO_THRESHOLD', '1.5'))  # Above average volume threshold
+BODY_RATIO_THRESHOLD = float(os.getenv('BODY_RATIO_THRESHOLD', '0.7'))  # Strong candle body threshold
+
+# Price Position Thresholds
+PRICE_POSITION_HIGH = float(os.getenv('PRICE_POSITION_HIGH', '0.8'))  # Near top of range (80%)
+PRICE_POSITION_LOW = float(os.getenv('PRICE_POSITION_LOW', '0.2'))  # Near bottom of range (20%)
+
+# Support/Resistance Touch Detection
+TOUCH_TOLERANCE = float(os.getenv('TOUCH_TOLERANCE', '0.005'))  # 0.5% tolerance for S/R touches
+
 TIMEFRAME = os.getenv('TIMEFRAME', '5m')  # Default to 15 minutes, can be overridden
 
 # Risk management - Enhanced stop loss and take profit settings

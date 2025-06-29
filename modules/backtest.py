@@ -403,6 +403,11 @@ class Backtester:
                 logger.warning("Attempted to open position while one already exists")
                 return False
                 
+            # Validate signal
+            if signal not in ['BUY', 'SELL']:
+                logger.warning(f"Invalid signal for opening position: {signal}")
+                return False
+                
             price = row['close']
             timestamp = row['timestamp']
             
@@ -436,7 +441,7 @@ class Backtester:
             if USE_TAKE_PROFIT:
                 if signal == 'BUY':
                     take_profit = price * (1 + TAKE_PROFIT_PCT)
-                else:  # signal == 'SELL'
+                elif signal == 'SELL':
                     take_profit = price * (1 - TAKE_PROFIT_PCT)
             
             # Create enhanced position
@@ -633,15 +638,16 @@ class Backtester:
                         signal = self.strategy.get_signal(klines_subset)
                         
                         # Process signal - ENHANCED LOGIC TO PREVENT DUPLICATE POSITIONS
-                        if signal:
+                        if signal and signal != 'HOLD':
                             logger.debug(f"Signal {signal} received at {timestamp}")
                             
                             if not self.current_position:
-                                # No current position - open new position
-                                success = self.open_position(row, signal)
-                                if success:
-                                    self.last_signal = signal
-                                    logger.info(f"✅ Opened NEW {signal} position at {row['close']:.6f}")
+                                # No current position - open new position (only for BUY/SELL)
+                                if signal in ['BUY', 'SELL']:
+                                    success = self.open_position(row, signal)
+                                    if success:
+                                        self.last_signal = signal
+                                        logger.info(f"✅ Opened NEW {signal} position at {row['close']:.6f}")
                             else:
                                 # Already have a position - check if signal is different
                                 current_side = self.current_position.side
@@ -665,6 +671,9 @@ class Backtester:
                                         logger.info(f"✅ Switched to {signal} position at {row['close']:.6f}")
                                     else:
                                         logger.warning(f"❌ Failed to open {signal} position after signal change")
+                        elif signal == 'HOLD':
+                            # HOLD signal - just log it and continue
+                            logger.debug(f"HOLD signal received at {timestamp} - no action taken")
                     
                     # Calculate current equity
                     position_value = 0
